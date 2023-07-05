@@ -1,58 +1,131 @@
 """Cassandra tap class."""
 
-from __future__ import annotations
-
-from singer_sdk import Tap
+from singer_sdk import SQLTap
 from singer_sdk import typing as th  # JSON schema typing helpers
 
-# TODO: Import your custom stream types here:
-from tap_cassandra import streams
+from tap_cassandra.streams import CassandraStream
+from tap_cassandra.client import CassandraConnector
 
 
-class TapCassandra(Tap):
+class TapCassandra(SQLTap):
     """Cassandra tap class."""
 
     name = "tap-cassandra"
+    _connector = None
 
-    # TODO: Update this section with the actual config values you expect:
     config_jsonschema = th.PropertiesList(
         th.Property(
-            "auth_token",
+            "hosts",
+            th.StringType,
+            required=True,
+            description="The list of contact points to try connecting for cluster discovery.",
+        ),
+        th.Property(
+            "port",
+            th.IntegerType,
+            required=False,
+            default=9042,
+            description="The server-side port to open connections to. Defaults to 9042..",
+        ),
+        th.Property(
+            "keyspace",
+            th.StringType,
+            required=True,
+            description="Keyspace will be the default keyspace for operations on the Session.",
+        ),
+        th.Property(
+            "username",
+            th.StringType,
+            required=True,
+            description="The username passed as a PlainTextAuthProvider username.",
+        ),
+        th.Property(
+            "password",
             th.StringType,
             required=True,
             secret=True,  # Flag config as protected.
-            description="The token to authenticate against the API service",
-        ),
-        th.Property(
-            "project_ids",
-            th.ArrayType(th.StringType),
-            required=True,
-            description="Project IDs to replicate",
+            description="The password passed as a PlainTextAuthProvider password.",
         ),
         th.Property(
             "start_date",
             th.DateTimeType,
-            description="The earliest record date to sync",
+            required=False,
+            description="The earliest record date to sync.",
         ),
         th.Property(
-            "api_url",
+            "request_timeout",
+            th.IntegerType,
+            required=False,
+            default=100,
+            description="Request timeout used when not overridden in Session.execute().",
+        ),
+        th.Property(
+            "local_dc",
             th.StringType,
-            default="https://api.mysample.com",
-            description="The url for the API service",
+            required=False,
+            default=None,
+            description="The local_dc parameter should be the name of the datacenter.",
+        ),
+        th.Property(
+            "reconnect_delay",
+            th.IntegerType,
+            required=False,
+            default=60,
+            description="Floating point number of seconds to wait inbetween each attempt.",
+        ),
+        th.Property(
+            "max_attempts",
+            th.IntegerType,
+            required=False,
+            default=5,
+            description="Should be a total number of attempts to be made before giving up.",
+        ),
+        th.Property(
+            "protocol_version",
+            th.IntegerType,
+            required=False,
+            default=65,
+            description="The maximum version of the native protocol to use.",
         ),
     ).to_dict()
 
-    def discover_streams(self) -> list[streams.CassandraStream]:
-        """Return a list of discovered streams.
+    @property
+    def connector(self) -> CassandraConnector:
+        """Get Cassandra Connector class instance."""
+
+        if self._connector is None:
+            self._connector = CassandraConnector(config=dict(self.config))
+        return self._connector
+
+    @property
+    def catalog_dict(self) -> dict:
+        """Get catalog dictionary.
 
         Returns:
-            A list of discovered streams.
+            The tap's catalog as a dict
+        """
+        if self._catalog_dict:
+            return self._catalog_dict
+
+        if self.input_catalog:
+            return self.input_catalog.to_dict()
+
+        result: dict[str, list[dict]] = {"streams": []}
+        result["streams"].extend(self.connector.discover_catalog_entries())
+
+        self._catalog_dict: dict = result
+        return self._catalog_dict
+
+    def discover_streams(self) -> list[CassandraStream]:
+        """Initialize all available streams and return them as a list.
+
+        Returns:
+            List of discovered Stream objects.
         """
         return [
-            streams.GroupsStream(self),
-            streams.UsersStream(self),
+            CassandraStream(self, catalog_entry, connector=self.connector)
+            for catalog_entry in self.catalog_dict["streams"]
         ]
-
 
 if __name__ == "__main__":
     TapCassandra.cli()

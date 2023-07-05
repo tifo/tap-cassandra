@@ -1,34 +1,320 @@
 """Custom client handling, including CassandraStream base class."""
 
-from __future__ import annotations
+import logging
 
-from typing import Iterable
+from singer_sdk import typing as th
+from singer_sdk._singerlib import CatalogEntry, MetadataMapping, Schema
 
-from singer_sdk.streams import Stream
+from cassandra.cluster import EXEC_PROFILE_DEFAULT, Cluster, ExecutionProfile
+from cassandra.auth import PlainTextAuthProvider
+from cassandra.policies import (
+    ConsistencyLevel,
+    ConstantReconnectionPolicy,
+    DCAwareRoundRobinPolicy,
+    RetryPolicy,
+)
+from cassandra.query import dict_factory, SimpleStatement
 
 
-class CassandraStream(Stream):
-    """Stream class for Cassandra streams."""
+BATCH_SIZE = 10000
 
-    def get_records(
-        self,
-        context: dict | None,  # noqa: ARG002
-    ) -> Iterable[dict]:
-        """Return a generator of record-type dictionary objects.
+class CassandraConnector:
+    """Connects to the Cassandra source."""
 
-        The optional `context` argument is used to identify a specific slice of the
-        stream if partitioning is required for the stream. Most implementations do not
-        require partitioning and should ignore the `context` argument.
+    # TODO: Implement as a method rather hardcoded dict.
+    # Use native cassandra driver to get all available types
+    # https://cassandra.apache.org/doc/latest/cassandra/cql/types.html
+    # Properly map maps, sets and list, but not to StringType
+    CASSANDRA_TO_SINGER_MAP = {
+        'ascii': th.StringType, #
+        'bigint': th.IntegerType,
+        'blob': th.StringType, #
+        'boolean': th.BooleanType,
+        'counter': th.IntegerType,
+        'date': th.DateType,
+        'decimal': th.NumberType,
+        'double': th.NumberType,
+        'duration': th.StringType, #
+        'float': th.NumberType,
+        'inet': th.StringType, # An IP address, either IPv4 or IPv6
+        'int': th.IntegerType,
+        'smallint': th.IntegerType,
+        'text': th.StringType, #
+        'time': th.TimeType,
+        'timestamp': th.DateTimeType,
+        'timeuuid': th.UUIDType,
+        'tinyint': th.IntegerType,
+        'uuid': th.UUIDType,
+        'varchar': th.StringType, #
+        'varint': th.IntegerType,
+        'map<': th.StringType, #
+        'set<': th.StringType, #
+        'list<': th.StringType, #
+    }
+
+    def __init__(
+        self, 
+        config: dict | None,
+    ) -> None:
+        """Initialize the connector.
 
         Args:
-            context: Stream partition or context dictionary.
+            config: The connector configuration.
+        """
+
+        self.config = config
+
+        self._auth_provider = None
+        self._profile = None
+        self._cluster = None
+        self._session = None
+
+    @property
+    def auth_provider(self):
+        """An AuthProvider that works with Cassandra’s PasswordAuthenticator.
+
+        https://docs.datastax.com/en/developer/python-driver/3.25/api/cassandra/auth/#cassandra.auth.AuthProvider
+        """
+
+        # TODO: Implement other authentication methods.
+        if self._auth_provider is None:
+            self._auth_provider = PlainTextAuthProvider(
+                username=self.config.get('username'), password=self.config.get('password')
+            )
+        return self._auth_provider
+
+    @property
+    def profile(self):
+        """Execution profile property.
+
+        https://docs.datastax.com/en/developer/python-driver/3.25/api/cassandra/cluster/#cassandra.cluster.ExecutionProfile.
+        """
+        
+        if self._profile is None:
+            self._profile = ExecutionProfile(
+                retry_policy=RetryPolicy(),
+                consistency_level=ConsistencyLevel.LOCAL_QUORUM,
+                serial_consistency_level=ConsistencyLevel.LOCAL_SERIAL,
+                request_timeout=self.config.get('request_timeout'),
+                row_factory=dict_factory,
+                load_balancing_policy=DCAwareRoundRobinPolicy(self.config.get('local_dc')),
+            )
+        return self._profile
+
+    @property
+    def cluster(self):
+        """The main class to use when interacting with a Cassandra cluster.
+        
+        https://docs.datastax.com/en/developer/python-driver/3.25/api/cassandra/cluster/#module-cassandra.cluster
+        """
+        if self._cluster is None:
+            self._cluster = Cluster(
+                contact_points=self.config.get('hosts').split(','),
+                execution_profiles={EXEC_PROFILE_DEFAULT: self.profile},
+                reconnection_policy=ConstantReconnectionPolicy(
+                    delay=self.config.get('reconnect_delay'), 
+                    max_attempts=self.config.get('max_attempts')
+                ),
+                auth_provider=self.auth_provider,
+                protocol_version=self.config.get('protocol_version'),
+                port=self.config.get('port')
+            )
+        return self._cluster
+    
+    @property
+    def session(self):
+        """Session object used to execute the queries."""
+
+        if self._session is None:
+            self._session = self.cluster.connect(self.config.get('keyspace'))
+        return self._session
+    
+    @property
+    def logger(self) -> logging.Logger:
+        """Get logger.
+
+        Returns:
+            Plugin logger.
+        """
+        return logging.getLogger("cassandra.connector")
+
+    @staticmethod
+    def get_fully_qualified_name(
+        table_name: str | None = None,
+        schema_name: str | None = None,
+        delimiter: str = ".",
+    ) -> str:
+        """Concatenates a fully qualified name from the parts.
+
+        Args:
+            table_name: The name of the table.
+            schema_name: The name of the schema. Defaults to None.
+            delimiter: Generally: '.' for SQL names and '-' for Singer names.
 
         Raises:
-            NotImplementedError: If the implementation is TODO
+            ValueError: If all 3 name parts not supplied.
+
+        Returns:
+            The fully qualified name as a string.
         """
-        # TODO: Write logic to extract data from the upstream source.
-        # records = mysource.getall()  # noqa: ERA001
-        # for record in records:
-        #     yield record.to_dict()  # noqa: ERA001
-        errmsg = "The method is not yet implemented (TODO)"
-        raise NotImplementedError(errmsg)
+        parts = []
+
+        if schema_name:
+            parts.append(schema_name)
+        if table_name:
+            parts.append(table_name)
+
+        if not parts:
+            raise ValueError(
+                "Could not generate fully qualified name: "
+                + ":".join(
+                    [
+                        schema_name or "(unknown-schema)",
+                        table_name or "(unknown-table-name)",
+                    ],
+                ),
+            )
+
+        return delimiter.join(parts)
+
+    @staticmethod
+    def query_statement(cql):
+        """Create a simple query statement with batch size defined."""
+     
+        return SimpleStatement(cql, fetch_size=BATCH_SIZE)
+
+    def _is_connected(self):
+        """Method to check if connection to Cassandra cluster."""
+
+        return self._cluster is not None and self._session is not None
+
+    def _disconnect(self):
+        """Method to disconnect from a cluster."""
+
+        if self._is_connected():
+            self.cluster.shutdown()
+
+    def execute(self, query):
+        """Method to execute the query and return the output."""
+
+        try:
+            res = self.session.execute(self.query_statement(query))
+            while res.has_more_pages or res.current_rows:    
+                batch = res.current_rows
+                self.logger.info(f'{len(batch)} row(s) fetched.')
+                for row in batch:
+                    yield row
+                res.fetch_next_page()
+        except Exception as e:
+            raise(e)
+        finally:
+            self._disconnect()
+    
+    def discover_catalog_entry(
+        self,
+        table_name: str
+    ) -> CatalogEntry:
+        """Create `CatalogEntry` object for the given table
+
+        Args:
+            table_name: Name of the table
+
+        Returns:
+            `CatalogEntry` object for the given table
+        """
+
+        table_schema = th.PropertiesList()
+        partition_keys = list()
+        clustering_keys = list()
+
+        schema_query = f'''
+        select *
+        from system_schema.columns
+        where keyspace_name = '{self.config.get('keyspace')}'
+        and table_name = '{table_name}'
+        '''
+
+        # Initialize columns list
+        for row in self.session.execute(self.query_statement(schema_query)):
+            row_column_name = row['column_name']
+        
+            dtype = row['type']
+            if dtype not in self.CASSANDRA_TO_SINGER_MAP.keys():
+                row_data_type = [v for k, v in self.CASSANDRA_TO_SINGER_MAP.items() if dtype.startswith(k)][0]
+            else:
+                row_data_type = self.CASSANDRA_TO_SINGER_MAP[dtype]
+            
+            if row['kind'] == 'partition_key':
+                is_nullable = False
+                partition_keys.append(row_column_name)                
+            elif row['kind'] == 'clustering':
+                is_nullable = False
+                clustering_keys.append((row_column_name, row['position']))
+            else:
+                is_nullable = True
+
+            table_schema.append(
+                th.Property(
+                    name=row_column_name,
+                    wrapped=th.CustomType(row_data_type.type_dict),
+                    required=not is_nullable,
+                ),
+            )
+
+        schema = table_schema.to_dict()
+                
+        # Initialize unique stream name
+        unique_stream_id = f"{self.config.get('keyspace')}-{table_name}"
+
+        # Detect key properties
+        clustering_keys.sort(key=lambda tup: tup[1])
+        key_properties = partition_keys + [tup[0] for tup in clustering_keys]
+
+        # Initialize available replication methods
+        addl_replication_methods: list[str] = [""]  # By default an empty list.
+        # Notes regarding replication methods:
+        # - 'INCREMENTAL' replication must be enabled by the user by specifying
+        #   a replication_key value.
+        # - 'LOG_BASED' replication must be enabled by the developer, according
+        #   to source-specific implementation capabilities.
+        replication_method = next(reversed(["FULL_TABLE", *addl_replication_methods]))
+
+        # Create the catalog entry object
+        return CatalogEntry(
+            tap_stream_id=unique_stream_id,
+            stream=unique_stream_id,
+            table=table_name,
+            key_properties=key_properties,
+            schema=Schema.from_dict(schema),
+            replication_method=replication_method,
+            metadata=MetadataMapping.get_standard_metadata(
+                schema_name=self.config.get('keyspace'),
+                schema=schema,
+                replication_method=replication_method,
+                key_properties=key_properties,
+                valid_replication_keys=None,  # Must be defined by user
+            ),
+            database=None,  # Expects single-database context
+            row_count=None,
+            stream_alias=None,
+            replication_key=None,  # Must be defined by user
+        )
+
+    def discover_catalog_entries(self) -> list[dict]:
+        """Return a list of catalog entries from discovery.
+
+        Returns:
+            The discovered catalog entries as a list.
+        """
+        result: list[dict] = []
+
+        table_query = f'''
+        select table_name
+        from system_schema.tables
+        where keyspace_name = '{self.config.get('keyspace')}'
+        '''
+        for table in self.session.execute(self.query_statement(table_query)):
+            catalog_entry = self.discover_catalog_entry(table['table_name'])
+            result.append(catalog_entry.to_dict())     
+
+        return result

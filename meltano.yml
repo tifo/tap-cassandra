@@ -1,13 +1,13 @@
 version: 1
 send_anonymous_usage_stats: true
-project_id: "tap-cassandra"
+project_id: tap-cassandra
 default_environment: test
 environments:
 - name: test
 plugins:
   extractors:
-  - name: "tap-cassandra"
-    namespace: "tap_cassandra"
+  - name: tap-cassandra
+    namespace: tap_cassandra
     pip_url: -e .
     capabilities:
     - state
@@ -15,15 +15,20 @@ plugins:
     - discover
     - about
     - stream-maps
-    config:
-      start_date: '2010-01-01T00:00:00Z'
+    - schema-flattening
+    - batch
     settings:
-    # TODO: To configure using Meltano, declare settings and their types here:
     - name: username
     - name: password
       kind: password
-    - name: start_date
-      value: '2010-01-01T00:00:00Z'
+    - name: hosts
+    - name: keyspace
+    - name: local_dc
+    - name: port
+    - name: request_timeout
+    - name: reconnect_delay
+    - name: max_attempts
+    - name: protocol_version
   loaders:
   - name: target-jsonl
     variant: andyh1203
