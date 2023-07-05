@@ -8,35 +8,54 @@ Built with the [Meltano Tap SDK](https://sdk.meltano.com) for Singer Taps.
 
 Developer TODO: Update the below as needed to correctly describe the install procedure. For instance, if you do not have a PyPi repo, or if you want users to directly install from your git repo, you can modify this step as appropriate.
 
-## Installation
-
 Install from PyPi:
 
 ```bash
 pipx install tap-cassandra
 ```
 
+-->
+
+## Installation
+
 Install from GitHub:
 
 ```bash
-pipx install git+https://github.com/ORG_NAME/tap-cassandra.git@main
+pipx install git+https://github.com/datarts-tech/tap-cassandra.git@main
 ```
 
--->
 
-## Configuration
 
-### Accepted Config Options
+## Capabilities
 
-<!--
-Developer TODO: Provide a list of config options accepted by the tap.
+* `catalog`
+* `state`
+* `discover`
+* `about`
+* `stream-maps`
+* `schema-flattening`
+* `batch`
 
-This section can be created by copy-pasting the CLI output from:
+## Settings
 
-```
-tap-cassandra --about --format=markdown
-```
--->
+| Setting             | Required | Default | Description |
+|:--------------------|:--------:|:-------:|:------------|
+| hosts               | True     | None    | The list of contact points to try connecting for cluster discovery. |
+| port                | False    |    9042 | The server-side port to open connections to. Defaults to 9042.. |
+| keyspace            | True     | None    | Keyspace will be the default keyspace for operations on the Session. |
+| username            | True     | None    | The username passed as a PlainTextAuthProvider username. |
+| password            | True     | None    | The password passed as a PlainTextAuthProvider password. |
+| start_date          | False    | None    | The earliest record date to sync. |
+| request_timeout     | False    |     100 | Request timeout used when not overridden in Session.execute(). |
+| local_dc            | False    | None    | The local_dc parameter should be the name of the datacenter. |
+| reconnect_delay     | False    |      60 | Floating point number of seconds to wait inbetween each attempt. |
+| max_attempts        | False    |       5 | Should be a total number of attempts to be made before giving up. |
+| protocol_version    | False    |      65 | The maximum version of the native protocol to use. |
+| stream_maps         | False    | None    | Config object for stream maps capability. For more information check out [Stream Maps](https://sdk.meltano.com/en/latest/stream_maps.html). |
+| stream_map_config   | False    | None    | User-defined config values to be used within map expressions. |
+| flattening_enabled  | False    | None    | 'True' to enable schema flattening and automatically expand nested properties. |
+| flattening_max_depth| False    | None    | The max depth to flatten schemas. |
+| batch_config        | False    | None    |             |
 
 A full list of supported settings and capabilities for this
 tap is available by running:
