@@ -87,6 +87,13 @@ class TapCassandra(SQLTap):
             default=65,
             description="The maximum version of the native protocol to use.",
         ),
+        th.Property(
+            "fetch_size",
+            th.IntegerType,
+            required=False,
+            default=10000,
+            description="The fetch size when syncing data from Cassandra.",
+        ),
     ).to_dict()
 
     @property
