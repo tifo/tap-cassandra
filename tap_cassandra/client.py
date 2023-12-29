@@ -16,8 +16,6 @@ from cassandra.policies import (
 from cassandra.query import dict_factory, SimpleStatement
 
 
-BATCH_SIZE = 10000
-
 class CassandraConnector:
     """Connects to the Cassandra source."""
 
@@ -178,10 +176,10 @@ class CassandraConnector:
         return delimiter.join(parts)
 
     @staticmethod
-    def query_statement(cql):
+    def query_statement(cql, fetch_size):
         """Create a simple query statement with batch size defined."""
      
-        return SimpleStatement(cql, fetch_size=BATCH_SIZE)
+        return SimpleStatement(cql, fetch_size=fetch_size)
 
     def _is_connected(self):
         """Method to check if connection to Cassandra cluster."""
@@ -198,7 +196,7 @@ class CassandraConnector:
         """Method to execute the query and return the output."""
 
         try:
-            res = self.session.execute(self.query_statement(query))
+            res = self.session.execute(self.query_statement(query, self.config.get('fetch_size')))
             while res.has_more_pages or res.current_rows:    
                 batch = res.current_rows
                 self.logger.info(f'{len(batch)} row(s) fetched.')
@@ -235,7 +233,7 @@ class CassandraConnector:
         '''
 
         # Initialize columns list
-        for row in self.session.execute(self.query_statement(schema_query)):
+        for row in self.session.execute(self.query_statement(schema_query, self.config.get('fetch_size'))):
             row_column_name = row['column_name']
         
             dtype = row['type']
@@ -313,7 +311,7 @@ class CassandraConnector:
         from system_schema.tables
         where keyspace_name = '{self.config.get('keyspace')}'
         '''
-        for table in self.session.execute(self.query_statement(table_query)):
+        for table in self.session.execute(self.query_statement(table_query, self.config.get('fetch_size'))):
             catalog_entry = self.discover_catalog_entry(table['table_name'])
             result.append(catalog_entry.to_dict())     
 
