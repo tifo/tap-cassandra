@@ -28,6 +28,8 @@ jobs:
     - name: Start Cassandra Cluster
       run: |
         docker-compose up -d
+    - name: Wait Cassandra Cluster
+      run: sleep 60s
     - name: Test with pytest
       run: |
         poetry run pytest
