@@ -50,10 +50,7 @@ class CassandraConnector:
         'list<': th.StringType, #
     }
 
-    def __init__(
-        self, 
-        config: dict | None,
-    ) -> None:
+    def __init__(self, config):
         """Initialize the connector.
 
         Args:
@@ -114,9 +111,10 @@ class CassandraConnector:
                     max_attempts=self.config.get('max_attempts')
                 ),
                 auth_provider=self.auth_provider,
-                protocol_version=self.config.get('protocol_version'),
                 port=self.config.get('port')
             )
+            if self.config.get('protocol_version'):
+                self._cluster.protocol_version = self.config.get('protocol_version')
         return self._cluster
     
     @property
@@ -137,11 +135,7 @@ class CassandraConnector:
         return logging.getLogger("cassandra.connector")
 
     @staticmethod
-    def get_fully_qualified_name(
-        table_name: str | None = None,
-        schema_name: str | None = None,
-        delimiter: str = ".",
-    ) -> str:
+    def get_fully_qualified_name(table_name=None, schema_name=None, delimiter="."):
         """Concatenates a fully qualified name from the parts.
 
         Args:

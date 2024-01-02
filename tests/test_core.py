@@ -2,28 +2,53 @@
 
 import datetime
 
+import pytest
+from cassandra.cluster import Cluster
 from singer_sdk.testing import get_tap_test_class
 
 from tap_cassandra.tap import TapCassandra
 
+
 SAMPLE_CONFIG = {
-    "hosts": ["10.0.0.1", "10.0.0.2"],
-    "port": 9042,
-    "keyspace": "my_keyspace",
-    "username": "test",
-    "password": "test",
-    "start_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"),
-    "request_timeout": 60,
-    "local_dc": "my_dc",
-    "reconnect_delay": 60,
-    "max_attempts": 5,
-    "protocol_version": 65,
+    "hosts": "127.0.0.1",
+    "username": "cassandra",
+    "password": "cassandra",
+    "keyspace": "test_schema"
 }
 
-# TODO: Create additional tests
-# Create a docker image with local cassandra so we can test TapCassandra.
 # Run standard built-in tap tests from the SDK:
-# TestTapCassandra = get_tap_test_class(
-#     tap_class=TapCassandra,
-#     config=SAMPLE_CONFIG,
-# )
+PreTestTapCassandra = get_tap_test_class(
+    tap_class=TapCassandra,
+    config=SAMPLE_CONFIG,
+    catalog="tests/resources/catalog.json",
+)
+
+class TestTapCassandra(PreTestTapCassandra):
+    keyspace_name = 'test_schema'
+    table_name = 'test_table'
+
+    def _setup(self):
+        cluster = Cluster()
+        session = cluster.connect()
+        
+        create_keyspace_command = f"""
+        CREATE KEYSPACE IF NOT EXISTS {self.keyspace_name}
+        WITH REPLICATION = {{ 'class' : 'SimpleStrategy', 'replication_factor' : 1 }};
+        """
+        session.execute(create_keyspace_command)
+        session.set_keyspace(self.keyspace_name)
+
+        create_table_command = f"""
+        CREATE TABLE IF NOT EXISTS {self.keyspace_name}.{self.table_name}
+        (id int, updated_at timestamp, name text, primary key (id));
+        """
+        session.execute(create_table_command)
+
+        insert_command = f"""
+        INSERT INTO {self.keyspace_name}.{self.table_name} (id, updated_at, name) values (1, dateof(now()), 'test1');
+        """
+        session.execute(insert_command)
+
+    @pytest.fixture(scope="class")
+    def resource(self):
+        self._setup()
