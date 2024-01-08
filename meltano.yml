@@ -29,6 +29,8 @@ plugins:
     - name: reconnect_delay
     - name: max_attempts
     - name: protocol_version
+    - name: fetch_size
+    - name: skip_hot_partitions
   loaders:
   - name: target-jsonl
     variant: andyh1203
