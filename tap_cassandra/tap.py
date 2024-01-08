@@ -92,6 +92,13 @@ class TapCassandra(SQLTap):
             default=10000,
             description="The fetch size when syncing data from Cassandra.",
         ),
+        th.Property(
+            "skip_hot_partitions",
+            th.BoolType,
+            required=False,
+            default=False,
+            description="When set to `True` skipping partitions when faced ReadTimout or ReadFailure errors.",
+        ),
     ).to_dict()
 
     @property

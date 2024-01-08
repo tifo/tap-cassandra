@@ -34,5 +34,10 @@ class CassandraStream(SQLStream):
         selected_column_string = ','.join(selected_column_names) if selected_column_names else '*'
 
         cql = f"select {selected_column_string} from {self.name.split('-')[1]}"
-        for record in self.connector.execute(cql):
-            yield record
+
+        if self.config.get('skip_hot_partitions'):
+            for row in self.execute_with_skip(cql, self.catalog_entry['key_properties'][0]):
+                yield row
+        else:
+            for row in self.execute(cql):
+                yield row
