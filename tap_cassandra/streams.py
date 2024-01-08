@@ -36,8 +36,8 @@ class CassandraStream(SQLStream):
         cql = f"select {selected_column_string} from {self.name.split('-')[1]}"
 
         if self.config.get('skip_hot_partitions'):
-            for row in self.execute_with_skip(cql, self.catalog_entry['key_properties'][0]):
+            for row in self.connector.execute_with_skip(cql, self.catalog_entry['key_properties'][0]):
                 yield row
         else:
-            for row in self.execute(cql):
+            for row in self.connector.execute(cql):
                 yield row
