@@ -94,7 +94,7 @@ class TapCassandra(SQLTap):
         ),
         th.Property(
             "skip_hot_partitions",
-            th.BoolType,
+            th.BooleanType,
             required=False,
             default=False,
             description="When set to `True` skipping partitions when faced ReadTimout or ReadFailure errors.",
