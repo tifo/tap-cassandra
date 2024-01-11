@@ -8,7 +8,7 @@ from singer_sdk.streams import SQLStream
 class CassandraStream(SQLStream):
     """Stream class for Cassandra streams."""
 
-    def get_records(self, context: dict | None) -> Iterable[dict[str, Any]]:
+    def get_records(self, context):
         """Return a generator of record-type dictionary objects.
 
         If the stream has a replication_key value defined, records will be sorted by the
@@ -31,8 +31,13 @@ class CassandraStream(SQLStream):
             raise NotImplementedError(msg)
 
         selected_column_names = self.get_selected_schema()["properties"].keys()
-        selected_column_string = ','.join(selected_column_names)
+        selected_column_string = ','.join(selected_column_names) if selected_column_names else '*'
 
         cql = f"select {selected_column_string} from {self.name.split('-')[1]}"
-        for record in self.connector.execute(cql):
-            yield record
+
+        if self.config.get('skip_hot_partitions'):
+            for row in self.connector.execute_with_skip(cql, self.catalog_entry['key_properties'][0]):
+                yield row
+        else:
+            for row in self.connector.execute(cql):
+                yield row

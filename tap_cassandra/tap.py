@@ -30,7 +30,7 @@ class TapCassandra(SQLTap):
         th.Property(
             "keyspace",
             th.StringType,
-            required=True,
+            required=False,
             description="Keyspace will be the default keyspace for operations on the Session.",
         ),
         th.Property(
@@ -56,14 +56,12 @@ class TapCassandra(SQLTap):
             "request_timeout",
             th.IntegerType,
             required=False,
-            default=100,
             description="Request timeout used when not overridden in Session.execute().",
         ),
         th.Property(
             "local_dc",
             th.StringType,
             required=False,
-            default=None,
             description="The local_dc parameter should be the name of the datacenter.",
         ),
         th.Property(
@@ -84,7 +82,7 @@ class TapCassandra(SQLTap):
             "protocol_version",
             th.IntegerType,
             required=False,
-            default=65,
+            default=None,
             description="The maximum version of the native protocol to use.",
         ),
         th.Property(
@@ -93,6 +91,13 @@ class TapCassandra(SQLTap):
             required=False,
             default=10000,
             description="The fetch size when syncing data from Cassandra.",
+        ),
+        th.Property(
+            "skip_hot_partitions",
+            th.BooleanType,
+            required=False,
+            default=False,
+            description="When set to `True` skipping partitions when faced ReadTimout or ReadFailure errors.",
         ),
     ).to_dict()
 

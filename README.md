@@ -52,6 +52,7 @@ pipx install git+https://github.com/datarts-tech/tap-cassandra.git@main
 | max_attempts        | False    |       5 | Should be a total number of attempts to be made before giving up. |
 | protocol_version    | False    |      65 | The maximum version of the native protocol to use. |
 | fetch_size          | False    |   10000 | The fetch size when syncing data from Cassandra. |
+| skip_hot_partitions | False    |   False | When set to `True` skipping partitions when faced ReadTimout or ReadFailure errors. |
 | stream_maps         | False    | None    | Config object for stream maps capability. For more information check out [Stream Maps](https://sdk.meltano.com/en/latest/stream_maps.html). |
 | stream_map_config   | False    | None    | User-defined config values to be used within map expressions. |
 | flattening_enabled  | False    | None    | 'True' to enable schema flattening and automatically expand nested properties. |

@@ -1,10 +1,12 @@
 """Custom client handling, including CassandraStream base class."""
 
+import time
 import logging
 
 from singer_sdk import typing as th
 from singer_sdk._singerlib import CatalogEntry, MetadataMapping, Schema
 
+from cassandra import ReadFailure, ReadTimeout
 from cassandra.cluster import EXEC_PROFILE_DEFAULT, Cluster, ExecutionProfile
 from cassandra.auth import PlainTextAuthProvider
 from cassandra.policies import (
@@ -50,10 +52,7 @@ class CassandraConnector:
         'list<': th.StringType, #
     }
 
-    def __init__(
-        self, 
-        config: dict | None,
-    ) -> None:
+    def __init__(self, config):
         """Initialize the connector.
 
         Args:
@@ -114,9 +113,10 @@ class CassandraConnector:
                     max_attempts=self.config.get('max_attempts')
                 ),
                 auth_provider=self.auth_provider,
-                protocol_version=self.config.get('protocol_version'),
                 port=self.config.get('port')
             )
+            if self.config.get('protocol_version'):
+                self._cluster.protocol_version = self.config.get('protocol_version')
         return self._cluster
     
     @property
@@ -137,11 +137,7 @@ class CassandraConnector:
         return logging.getLogger("cassandra.connector")
 
     @staticmethod
-    def get_fully_qualified_name(
-        table_name: str | None = None,
-        schema_name: str | None = None,
-        delimiter: str = ".",
-    ) -> str:
+    def get_fully_qualified_name(table_name=None, schema_name=None, delimiter="."):
         """Concatenates a fully qualified name from the parts.
 
         Args:
@@ -193,8 +189,12 @@ class CassandraConnector:
             self.cluster.shutdown()
 
     def execute(self, query):
-        """Method to execute the query and return the output."""
-
+        """Method to execute the query and return the output.
+        
+        Args:
+            query: Cassandra CQL query to execute
+        """
+        
         try:
             res = self.session.execute(self.query_statement(query, self.config.get('fetch_size')))
             while res.has_more_pages or res.current_rows:    
@@ -208,6 +208,50 @@ class CassandraConnector:
         finally:
             self._disconnect()
     
+    def execute_with_skip(self, query, key_col):
+        """Method to execute the query and return the output.
+
+        Handles ReadTimeout and ReadFailure to skip hot partitions.
+
+        Args:
+            query: Cassandra CQL query to execute
+            key_col: first partition_key of a table 
+        """
+        
+        # Retry for ReadTimeout and ReadFailure
+        sleep_time_seconds = 30
+        retry = 0
+        max_retries = 3
+        while retry < max_retries:
+            try:
+                batch = None
+                res = self.session.execute(self.query_statement(query, self.config.get('fetch_size')))
+                while res.has_more_pages or res.current_rows:    
+                    batch = res.current_rows
+                    self.logger.info(f'{len(batch)} row(s) fetched.')
+                    for row in batch:
+                        yield row
+                    res.fetch_next_page()
+                self._disconnect()
+                break
+            except (ReadTimeout, ReadFailure) as re:
+                retry += 1
+                if not batch:
+                    res = self.session.execute(self.query_statement(query, 1))
+                    batch = res.current_rows
+                    self.logger.info(f'{len(batch)} row(s) fetched.')
+                last_key = batch[-1][key_col]
+                self.logger.info(f'Skipping {key_col} = {last_key}')
+                # Remove any filters done for a query
+                base_query = query.lower().split('where')[0].rstrip()
+                query = base_query + f" where token({key_col}) > token({last_key})"
+                print(f'Sleeping for {sleep_time_seconds} before retry')
+                self.logger.info(f'Sleeping for {sleep_time_seconds} before retry {retry} out of {max_retries}.')
+                time.sleep(sleep_time_seconds)
+            except Exception as e:
+                self._disconnect()
+                raise(e)
+
     def discover_catalog_entry(
         self,
         table_name: str
@@ -220,7 +264,7 @@ class CassandraConnector:
         Returns:
             `CatalogEntry` object for the given table
         """
-
+        self.logger.info('discover_catalog_entry called.')
         table_schema = th.PropertiesList()
         partition_keys = list()
         clustering_keys = list()
@@ -312,6 +356,7 @@ class CassandraConnector:
         where keyspace_name = '{self.config.get('keyspace')}'
         '''
         for table in self.session.execute(self.query_statement(table_query, self.config.get('fetch_size'))):
+        # for table in self.session.execute(self.query_statement(table_query, self.config.get('fetch_size'))):
             catalog_entry = self.discover_catalog_entry(table['table_name'])
             result.append(catalog_entry.to_dict())     
 
