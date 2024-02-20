@@ -12,8 +12,8 @@ from cassandra.auth import PlainTextAuthProvider
 from cassandra.policies import (
     ConsistencyLevel,
     ConstantReconnectionPolicy,
-    DCAwareRoundRobinPolicy,
     RetryPolicy,
+    DCAwareRoundRobinPolicy,
 )
 from cassandra.query import dict_factory, SimpleStatement
 
@@ -62,6 +62,7 @@ class CassandraConnector:
         self.config = config
 
         self._auth_provider = None
+        self._ssl_options = None
         self._profile = None
         self._cluster = None
         self._session = None
@@ -81,12 +82,26 @@ class CassandraConnector:
         return self._auth_provider
 
     @property
+    def ssl_options(self):
+        if self._ssl_options is None and self.config.get('ssl_enabled') == True:
+            self._ssl_options = {
+                'ssl_no_verify': self.config.get('ssl_no_verify'),
+            }
+            if self.config.get('ssl_ca_cert') is not None:
+                self._ssl_options['ca_certs'] = self.config.get('ssl_ca_cert')
+            if self.config.get('ssl_certfile') is not None:
+                self._ssl_options['certfile'] = self.config.get('ssl_certfile')
+            if self.config.get('ssl_keyfile') is not None:
+                self._ssl_options['keyfile'] = self.config.get('ssl_keyfile')
+        return self._ssl_options
+
+    @property
     def profile(self):
         """Execution profile property.
 
         https://docs.datastax.com/en/developer/python-driver/3.25/api/cassandra/cluster/#cassandra.cluster.ExecutionProfile.
         """
-        
+
         if self._profile is None:
             self._profile = ExecutionProfile(
                 retry_policy=RetryPolicy(),
@@ -101,7 +116,7 @@ class CassandraConnector:
     @property
     def cluster(self):
         """The main class to use when interacting with a Cassandra cluster.
-        
+
         https://docs.datastax.com/en/developer/python-driver/3.25/api/cassandra/cluster/#module-cassandra.cluster
         """
         if self._cluster is None:
@@ -109,16 +124,17 @@ class CassandraConnector:
                 contact_points=self.config.get('hosts').split(','),
                 execution_profiles={EXEC_PROFILE_DEFAULT: self.profile},
                 reconnection_policy=ConstantReconnectionPolicy(
-                    delay=self.config.get('reconnect_delay'), 
+                    delay=self.config.get('reconnect_delay'),
                     max_attempts=self.config.get('max_attempts')
                 ),
                 auth_provider=self.auth_provider,
+                ssl_options=self.ssl_options,
                 port=self.config.get('port')
             )
             if self.config.get('protocol_version'):
                 self._cluster.protocol_version = self.config.get('protocol_version')
         return self._cluster
-    
+
     @property
     def session(self):
         """Session object used to execute the queries."""
@@ -126,7 +142,7 @@ class CassandraConnector:
         if self._session is None:
             self._session = self.cluster.connect(self.config.get('keyspace'))
         return self._session
-    
+
     @property
     def logger(self) -> logging.Logger:
         """Get logger.
@@ -174,7 +190,7 @@ class CassandraConnector:
     @staticmethod
     def query_statement(cql, fetch_size):
         """Create a simple query statement with batch size defined."""
-     
+
         return SimpleStatement(cql, fetch_size=fetch_size)
 
     def _is_connected(self):
@@ -190,14 +206,14 @@ class CassandraConnector:
 
     def execute(self, query):
         """Method to execute the query and return the output.
-        
+
         Args:
             query: Cassandra CQL query to execute
         """
-        
+
         try:
             res = self.session.execute(self.query_statement(query, self.config.get('fetch_size')))
-            while res.has_more_pages or res.current_rows:    
+            while res.has_more_pages or res.current_rows:
                 batch = res.current_rows
                 self.logger.info(f'{len(batch)} row(s) fetched.')
                 for row in batch:
@@ -207,7 +223,7 @@ class CassandraConnector:
             raise(e)
         finally:
             self._disconnect()
-    
+
     def execute_with_skip(self, query, key_col):
         """Method to execute the query and return the output.
 
@@ -215,9 +231,9 @@ class CassandraConnector:
 
         Args:
             query: Cassandra CQL query to execute
-            key_col: first partition_key of a table 
+            key_col: first partition_key of a table
         """
-        
+
         # Retry for ReadTimeout and ReadFailure
         sleep_time_seconds = 30
         retry = 0
@@ -226,7 +242,7 @@ class CassandraConnector:
             try:
                 batch = None
                 res = self.session.execute(self.query_statement(query, self.config.get('fetch_size')))
-                while res.has_more_pages or res.current_rows:    
+                while res.has_more_pages or res.current_rows:
                     batch = res.current_rows
                     self.logger.info(f'{len(batch)} row(s) fetched.')
                     for row in batch:
@@ -279,16 +295,16 @@ class CassandraConnector:
         # Initialize columns list
         for row in self.session.execute(self.query_statement(schema_query, self.config.get('fetch_size'))):
             row_column_name = row['column_name']
-        
+
             dtype = row['type']
             if dtype not in self.CASSANDRA_TO_SINGER_MAP.keys():
                 row_data_type = [v for k, v in self.CASSANDRA_TO_SINGER_MAP.items() if dtype.startswith(k)][0]
             else:
                 row_data_type = self.CASSANDRA_TO_SINGER_MAP[dtype]
-            
+
             if row['kind'] == 'partition_key':
                 is_nullable = False
-                partition_keys.append(row_column_name)                
+                partition_keys.append(row_column_name)
             elif row['kind'] == 'clustering':
                 is_nullable = False
                 clustering_keys.append((row_column_name, row['position']))
@@ -304,7 +320,7 @@ class CassandraConnector:
             )
 
         schema = table_schema.to_dict()
-                
+
         # Initialize unique stream name
         unique_stream_id = f"{self.config.get('keyspace')}-{table_name}"
 
@@ -358,6 +374,6 @@ class CassandraConnector:
         for table in self.session.execute(self.query_statement(table_query, self.config.get('fetch_size'))):
         # for table in self.session.execute(self.query_statement(table_query, self.config.get('fetch_size'))):
             catalog_entry = self.discover_catalog_entry(table['table_name'])
-            result.append(catalog_entry.to_dict())     
+            result.append(catalog_entry.to_dict())
 
         return result

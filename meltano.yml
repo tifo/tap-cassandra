@@ -20,7 +20,7 @@ plugins:
     settings:
     - name: username
     - name: password
-      kind: password
+      sensitive: true
     - name: hosts
     - name: keyspace
     - name: local_dc
@@ -31,6 +31,11 @@ plugins:
     - name: protocol_version
     - name: fetch_size
     - name: skip_hot_partitions
+    - name: ssl_enabled
+    - name: ssl_ca_cert
+    - name: ssl_certfile
+    - name: ssl_keyfile
+    - name: ssl_no_verify
   loaders:
   - name: target-jsonl
     variant: andyh1203

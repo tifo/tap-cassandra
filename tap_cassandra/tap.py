@@ -25,7 +25,7 @@ class TapCassandra(SQLTap):
             th.IntegerType,
             required=False,
             default=9042,
-            description="The server-side port to open connections to. Defaults to 9042..",
+            description="The server-side port to open connections to. Defaults to 9042.",
         ),
         th.Property(
             "keyspace",
@@ -98,6 +98,41 @@ class TapCassandra(SQLTap):
             required=False,
             default=False,
             description="When set to `True` skipping partitions when faced ReadTimout or ReadFailure errors.",
+        ),
+        th.Property(
+            "ssl_enabled",
+            th.BooleanType,
+            required=False,
+            default=False,
+            description="Enable SSL communication when connecting to Cassandra."
+        ),
+        th.Property(
+            "ssl_ca_cert",
+            th.StringType,
+            required=False,
+            default=None,
+            description="The SSL CA Certificate to use when connecting to Cassandra (require `ssl_enabled`)."
+        ),
+        th.Property(
+            "ssl_certfile",
+            th.StringType,
+            required=False,
+            default=None,
+            description="The client SSL Certificate to use when connecting to Cassandra (require `ssl_enabled`)."
+        ),
+        th.Property(
+            "ssl_keyfile",
+            th.StringType,
+            required=False,
+            default=None,
+            description="The client SSL CA Certificate Key to use when connecting to Cassandra (require `ssl_enabled`)."
+        ),
+        th.Property(
+            "ssl_no_verify",
+            th.BooleanType,
+            required=False,
+            default=False,
+            description="Skip SSL host verification when connecting to Cassandra (require `ssl_enabled`)."
         ),
     ).to_dict()
 
