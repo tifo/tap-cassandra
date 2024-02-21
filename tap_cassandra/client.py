@@ -15,6 +15,7 @@ from cassandra.policies import (
     RetryPolicy,
     DCAwareRoundRobinPolicy,
 )
+from cassandra.connection import SniEndPointFactory
 from cassandra.query import dict_factory, SimpleStatement
 
 
@@ -121,15 +122,16 @@ class CassandraConnector:
         """
         if self._cluster is None:
             self._cluster = Cluster(
-                contact_points=self.config.get('hosts').split(','),
+                endpoint_factory=SniEndPointFactory(proxy_address=self.config.get('host'), port=self.config.get('port')),
+                contact_points=[self.config.get('host')],
+                port=self.config.get('port'),
+                auth_provider=self.auth_provider,
                 execution_profiles={EXEC_PROFILE_DEFAULT: self.profile},
                 reconnection_policy=ConstantReconnectionPolicy(
                     delay=self.config.get('reconnect_delay'),
                     max_attempts=self.config.get('max_attempts')
                 ),
-                auth_provider=self.auth_provider,
                 ssl_options=self.ssl_options,
-                port=self.config.get('port')
             )
             if self.config.get('protocol_version'):
                 self._cluster.protocol_version = self.config.get('protocol_version')
@@ -198,7 +200,7 @@ class CassandraConnector:
 
         return self._cluster is not None and self._session is not None
 
-    def _disconnect(self):
+    def disconnect(self):
         """Method to disconnect from a cluster."""
 
         if self._is_connected():
@@ -220,9 +222,8 @@ class CassandraConnector:
                     yield row
                 res.fetch_next_page()
         except Exception as e:
+            self.disconnect()
             raise(e)
-        finally:
-            self._disconnect()
 
     def execute_with_skip(self, query, key_col):
         """Method to execute the query and return the output.
@@ -248,7 +249,6 @@ class CassandraConnector:
                     for row in batch:
                         yield row
                     res.fetch_next_page()
-                self._disconnect()
                 break
             except (ReadTimeout, ReadFailure) as re:
                 retry += 1
@@ -265,7 +265,7 @@ class CassandraConnector:
                 self.logger.info(f'Sleeping for {sleep_time_seconds} before retry {retry} out of {max_retries}.')
                 time.sleep(sleep_time_seconds)
             except Exception as e:
-                self._disconnect()
+                self.disconnect()
                 raise(e)
 
     def discover_catalog_entry(
@@ -298,7 +298,11 @@ class CassandraConnector:
 
             dtype = row['type']
             if dtype not in self.CASSANDRA_TO_SINGER_MAP.keys():
-                row_data_type = [v for k, v in self.CASSANDRA_TO_SINGER_MAP.items() if dtype.startswith(k)][0]
+                d2type = [v for k, v in self.CASSANDRA_TO_SINGER_MAP.items() if dtype.startswith(k)]
+                if len(d2type) > 0:
+                    row_data_type = d2type[0]
+                else:
+                    row_data_type = th.ObjectType()
             else:
                 row_data_type = self.CASSANDRA_TO_SINGER_MAP[dtype]
 

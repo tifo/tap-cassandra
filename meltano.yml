@@ -21,7 +21,7 @@ plugins:
     - name: username
     - name: password
       sensitive: true
-    - name: hosts
+    - name: host
     - name: keyspace
     - name: local_dc
     - name: port

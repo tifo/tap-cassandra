@@ -10,7 +10,7 @@ from tap_cassandra.tap import TapCassandra
 
 
 SAMPLE_CONFIG = {
-    "hosts": "127.0.0.1",
+    "host": "127.0.0.1",
     "username": "cassandra",
     "password": "cassandra",
     "keyspace": "test_schema"
@@ -30,7 +30,7 @@ class TestTapCassandra(PreTestTapCassandra):
     def _setup(self):
         cluster = Cluster()
         session = cluster.connect()
-        
+
         create_keyspace_command = f"""
         CREATE KEYSPACE IF NOT EXISTS {self.keyspace_name}
         WITH REPLICATION = {{ 'class' : 'SimpleStrategy', 'replication_factor' : 1 }};

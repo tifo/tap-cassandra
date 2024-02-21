@@ -15,10 +15,10 @@ class TapCassandra(SQLTap):
 
     config_jsonschema = th.PropertiesList(
         th.Property(
-            "hosts",
+            "host",
             th.StringType,
             required=True,
-            description="The list of contact points to try connecting for cluster discovery.",
+            description="The hostname of the proxy to connect to for cluster discovery.",
         ),
         th.Property(
             "port",
@@ -173,6 +173,11 @@ class TapCassandra(SQLTap):
             CassandraStream(self, catalog_entry, connector=self.connector)
             for catalog_entry in self.catalog_dict["streams"]
         ]
+
+    def post_process(self):
+        # This method is called after all streams are processed.
+        if self._connector:
+            self._connector.disconnect()
 
 if __name__ == "__main__":
     TapCassandra.cli()
